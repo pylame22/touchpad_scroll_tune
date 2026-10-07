@@ -1,0 +1,8 @@
+{
+  "uuid": "touchpad-scroll-tune@pylame22",
+  "name": "Touchpad Scroll Tune",
+  "description": "Tune touchpad scrolling with reusable presets for your applications. Requires Wayland Scroll Factor 1.0 or later.",
+  "shell-version": ["51"],
+  "version": 1,
+  "settings-schema": "org.gnome.shell.extensions.touchpad-scroll-tune"
+}
