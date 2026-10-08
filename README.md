@@ -1,10 +1,10 @@
 # Touchpad Scroll Tune
 
-Set a comfortable touchpad scroll speed for each application on **GNOME 51 / Wayland**.
+Set a comfortable touchpad scroll speed for each application on **GNOME 48–51 / Wayland**.
 Create a preset once and share it across apps — for example, slow down scrolling
 in Electron apps while keeping your usual speed elsewhere.
 
-**Requires [Wayland Scroll Factor (WSF) 1.0 or later](https://github.com/daniel-g-carrasco/wayland-scroll-factor),
+**Requires [Wayland Scroll Factor (WSF) 0.3.5 or later](https://github.com/daniel-g-carrasco/wayland-scroll-factor),
 installed and enabled separately. Installing this extension does not install WSF.**
 
 ![Touchpad Scroll Tune preferences with a shared scrolling preset](docs/screenshots/preferences.png)
@@ -26,9 +26,9 @@ The extension does not create example presets on first launch.
 
 | Component | Requirement |
 | --- | --- |
-| Desktop | **GNOME Shell 51 only**; other versions are not currently supported |
+| Desktop | **GNOME Shell 48, 49, 50 or 51**; other versions are not currently supported |
 | Session | **Wayland** |
-| Scroll backend | **Wayland Scroll Factor 1.0+**, with its backend active in GNOME Shell |
+| Scroll backend | **Wayland Scroll Factor 0.3.5+**, with its backend active in GNOME Shell |
 | Runtime | GJS, GTK 4 and libadwaita, normally provided by GNOME |
 
 This is a GNOME Shell extension; it does not support KDE, other compositors or X11.
@@ -52,7 +52,7 @@ Node.js is used for development tests only.
    wsf status
    ```
 
-Use WSF 1.0 or later. The status should report `gnome-shell library mapped: yes`.
+Use WSF 0.3.5 or later. The status should report `gnome-shell library mapped: yes`.
 The extension needs the `wsf` executable in `PATH` or at `~/.local/bin/wsf`.
 See [upstream troubleshooting](https://github.com/daniel-g-carrasco/wayland-scroll-factor/blob/main/docs/troubleshooting.md)
 if the backend is not active.
@@ -107,7 +107,7 @@ it is not guaranteed after a Shell crash or forced termination.
 ## Troubleshooting and reporting bugs
 
 - **“WSF is not active”**: run `wsf enable`, log out and back in, then check `wsf status`.
-- **WSF is missing or its output is unsupported**: install or upgrade to WSF 1.0+.
+- **WSF is missing or its output is unsupported**: install or upgrade to WSF 0.3.5+.
 - **Speeds keep changing unexpectedly**: check for another extension or WSF tool
   writing scroll factors at the same time.
 - **An app uses Default**: check its preset assignment; applications GNOME cannot
@@ -149,9 +149,20 @@ The packaged extension has also been checked in an isolated GNOME Shell 51.0
 Wayland session with a fake WSF: actor tracking, signal and idle-source cleanup,
 restoration of both axes and immediate re-enable with the correct baseline.
 
-Before publishing, also check the installed ZIP in GNOME 51: pointer crossings,
-window movement under a stationary pointer, changing presets, opening preferences,
-screen lock/unlock and disabling the extension during a speed change.
+The extension has been manually checked on Debian 13 with GNOME Shell 48 / Wayland
+in GNOME Boxes and WSF 1.0.0: opening preferences, creating a preset, assigning it
+to Firefox and switching both scroll factors between Default (1.00) and Firefox
+(0.10) as the pointer moves between windows. The WSF backend was confirmed loaded
+in GNOME Shell. The VM receives `POINTER_SCROLL_WHEEL` events, which WSF leaves
+unchanged, so this check did not verify physical touchpad scroll scaling.
+
+GNOME 49 and 50 compatibility has been checked against their Shell/Mutter APIs,
+and the preferences module loads in the GNOME 50 Flatpak runtime. Full extension
+runs in GNOME Shell 49 and 50 are still pending. The native WSF 0.3.5 CLI has been
+checked with the extension's status and speed commands in an isolated configuration.
+
+Additional manual checks include window movement under a stationary pointer,
+editing presets, screen lock/unlock and disabling the extension during a speed change.
 
 ### Packaging
 

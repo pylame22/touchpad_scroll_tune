@@ -9,7 +9,7 @@ export function findWsf() {
     const local = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'wsf']);
     if (GLib.file_test(local, GLib.FileTest.IS_EXECUTABLE))
         return local;
-    throw new Error('Install Wayland Scroll Factor 1.0 or later to get started.');
+    throw new Error('Install Wayland Scroll Factor 0.3.5 or later to get started.');
 }
 
 export function runWsf(path, args, cancellable = null, timeoutSeconds = 5) {
@@ -69,7 +69,7 @@ export async function readWsf(path, cancellable = null) {
         horizontal: status.factors?.scroll_horizontal_factor,
     };
     if (!validSpeed(speed))
-        throw new Error('WSF did not return valid scroll speeds. Version 1.0 or later is required.');
+        throw new Error('WSF did not return valid scroll speeds. Version 0.3.5 or later is required.');
     return {speed, active: status.gnome_shell_library_mapped === true};
 }
 
