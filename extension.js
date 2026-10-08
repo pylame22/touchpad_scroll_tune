@@ -8,40 +8,59 @@ import {initialConfig, needsTracking, parseConfig, resolvePreset} from './config
 import {SpeedWriter} from './writer.js';
 import {applySpeed, findWsf, readWsf} from './wsf.js';
 
-// An immediate re-enable must wait for the preceding session's restoration.
-let restoration = Promise.resolve();
+// A new enable waits for the previous session's final asynchronous write.
+let restoration = null;
 
 export default class TouchpadScrollTune extends Extension {
     enable() {
-        this._token = {};
-        this._cancellable = new Gio.Cancellable();
         this._settings = this.getSettings();
         this._connections = [];
         this._actors = new Map();
         this._idle = 0;
-        const token = this._token;
-        this._start(token).catch(error => {
-            if (this._token === token)
+        const cancellable = this._cancellable = new Gio.Cancellable();
+        this._start(cancellable).catch(error => {
+            if (!cancellable.is_cancelled())
                 this._report(error);
         });
     }
 
-    async _start(token) {
+    disable() {
+        this._cancellable.cancel();
+        this._setTracking(false);
+        this._cancelResolve();
+        if (this._settingsId)
+            this._settings.disconnect(this._settingsId);
+        if (this._writer) {
+            const finished = this._writer.close(this._originalSpeed);
+            restoration = finished;
+            finished.then(() => {
+                if (restoration === finished)
+                    restoration = null;
+            });
+        }
+        this._settingsId = 0;
+        this._writer = null;
+        this._cancellable = null;
+        this._settings = null;
+        this._config = null;
+        this._tracker = null;
+        this._actors = null;
+        this._originalSpeed = null;
+    }
+
+    async _start(cancellable) {
         await restoration;
-        if (this._token !== token)
+        if (cancellable.is_cancelled())
             return;
-        const path = findWsf();
-        const {speed, active} = await readWsf(path, this._cancellable);
-        if (this._token !== token)
+        const {speed, active, configPath} = await readWsf(findWsf(), cancellable);
+        if (cancellable.is_cancelled())
             return;
         if (!active)
             throw new Error('WSF is not active. Run “wsf enable”, then log out and back in.');
-
-        // Re-read after the await: preferences may have initialized it meanwhile.
         if (!this._settings.get_string('configuration'))
             this._settings.set_string('configuration', JSON.stringify(initialConfig(speed)));
         this._originalSpeed = speed;
-        this._writer = new SpeedWriter(value => applySpeed(path, value), speed,
+        this._writer = new SpeedWriter(value => applySpeed(configPath, value), speed,
             error => this._report(error));
         this._tracker = Shell.WindowTracker.get_default();
         this._settingsId = this._settings.connect('changed::configuration', () => this._reload());
@@ -57,7 +76,7 @@ export default class TouchpadScrollTune extends Extension {
             this._resolve();
         } catch (error) {
             this._setTracking(false);
-            this._writer?.request(this._originalSpeed);
+            this._writer.request(this._originalSpeed);
             this._report(error);
         }
     }
@@ -123,7 +142,7 @@ export default class TouchpadScrollTune extends Extension {
     }
 
     _scheduleResolve() {
-        if (this._idle || !this._token)
+        if (this._idle || !this._tracking)
             return;
         this._idle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
             this._idle = 0;
@@ -160,24 +179,5 @@ export default class TouchpadScrollTune extends Extension {
     _report(error) {
         console.error(`Touchpad Scroll Tune: ${error.message}`);
         Main.notifyError('Touchpad Scroll Tune', error.message);
-    }
-
-    disable() {
-        this._token = null;
-        this._cancellable?.cancel();
-        this._setTracking(false);
-        this._cancelResolve();
-        if (this._settingsId)
-            this._settings.disconnect(this._settingsId);
-        if (this._writer)
-            restoration = this._writer.close(this._originalSpeed);
-        this._settingsId = 0;
-        this._writer = null;
-        this._settings = null;
-        this._config = null;
-        this._tracker = null;
-        this._actors = null;
-        this._cancellable = null;
-        this._originalSpeed = null;
     }
 }

@@ -1,6 +1,6 @@
 import {sameSpeed} from './config.js';
 
-// One command at a time. Intermediate requests are replaced, never queued.
+// One write at a time. Intermediate requests are replaced, never queued.
 export class SpeedWriter {
     constructor(apply, initial, onError = console.error) {
         this._apply = apply;
@@ -47,7 +47,7 @@ export class SpeedWriter {
                 this._failed = null;
             } catch (error) {
                 // Suppress repeated failures for this target until it changes.
-                // A failed command may have written before it failed.
+                // A failed write may have changed the file before it failed.
                 this._applied = null;
                 this._failed = speed;
                 this._onError(error);

@@ -5,7 +5,7 @@ import {SpeedWriter} from '../writer.js';
 const speed = n => ({vertical: n, horizontal: n});
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-test('same-speed events do not launch a process', async () => {
+test('same-speed events do not write the configuration', async () => {
     let calls = 0;
     const writer = new SpeedWriter(async () => calls++, speed(1));
     for (let i = 0; i < 10000; i++)
@@ -35,7 +35,7 @@ test('only the newest target follows an in-flight write, including a return to t
     assert.equal(writer._pending, null);
 });
 
-test('close serializes restoration after a running command and ignores later requests', async () => {
+test('close serializes restoration after a running write and ignores later requests', async () => {
     const calls = [];
     let finish;
     const writer = new SpeedWriter(value => {
@@ -64,7 +64,7 @@ test('failed writes are not cached as applied or retried on every event', async 
     assert.equal(writer._applied, null);
 });
 
-test('disable restores the baseline after a command with an uncertain outcome', async () => {
+test('disable restores the baseline after a write with an uncertain outcome', async () => {
     const calls = [];
     const writer = new SpeedWriter(async value => {
         calls.push(value.vertical);

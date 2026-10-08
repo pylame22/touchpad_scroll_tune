@@ -1,8 +1,9 @@
 {
   "uuid": "touchpad-scroll-tune@pylame22",
   "name": "Touchpad Scroll Tune",
-  "description": "Tune touchpad scrolling with reusable presets for your applications. Requires Wayland Scroll Factor 1.0 or later.",
+  "description": "Set touchpad scroll speeds per application with reusable presets and separate vertical and horizontal controls. Speeds follow the window under the pointer.\n\nRequires GNOME 51 on Wayland and Wayland Scroll Factor (WSF) 1.0 or later, installed and enabled separately. See the project website for setup instructions.",
+  "url": "https://github.com/pylame22/touchpad_scroll_tune",
   "shell-version": ["51"],
-  "version": 1,
+  "version-name": "0.1.0",
   "settings-schema": "org.gnome.shell.extensions.touchpad-scroll-tune"
 }
