@@ -52,7 +52,8 @@ export default class TouchpadScrollTune extends Extension {
         await restoration;
         if (cancellable.is_cancelled())
             return;
-        const {speed, active, configPath} = await readWsf(findWsf(), cancellable);
+        const path = findWsf();
+        const {speed, active} = await readWsf(path, cancellable);
         if (cancellable.is_cancelled())
             return;
         if (!active)
@@ -60,7 +61,7 @@ export default class TouchpadScrollTune extends Extension {
         if (!this._settings.get_string('configuration'))
             this._settings.set_string('configuration', JSON.stringify(initialConfig(speed)));
         this._originalSpeed = speed;
-        this._writer = new SpeedWriter(value => applySpeed(configPath, value), speed,
+        this._writer = new SpeedWriter(value => applySpeed(path, value), speed,
             error => this._report(error));
         this._tracker = Shell.WindowTracker.get_default();
         this._settingsId = this._settings.connect('changed::configuration', () => this._reload());

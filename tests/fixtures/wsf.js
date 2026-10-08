@@ -4,16 +4,14 @@ import {applySpeed} from '../../wsf.js';
 
 Gio._promisify(Gio.File.prototype, 'load_contents_async');
 Gio._promisify(Gio.File.prototype, 'replace_contents_bytes_async', 'replace_contents_finish');
-Gio._promisify(Gio.File.prototype, 'delete_async');
 
 const directory = GLib.getenv('SCROLL_TUNE_TEST_DIR');
-const path = `${directory}/settings/config`;
-const file = Gio.File.new_for_path(path);
-const read = async () => new TextDecoder().decode((await file.load_contents_async(null))[0]);
-const write = text => file.replace_contents_bytes_async(new GLib.Bytes(text), null, false,
-    Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+const path = `${directory}/wsf`;
+const read = async name => new TextDecoder().decode(
+    (await Gio.File.new_for_path(`${directory}/${name}`).load_contents_async(null))[0]);
+const state = async () => JSON.parse(await read('state.json'));
+const commands = async () => (await read('commands')).trim().split('\n').map(line => JSON.parse(line));
 const speed = {vertical: 0.35, horizontal: 0.45};
-const original = {vertical: 1, horizontal: 0.8};
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const deferred = () => {
     let resolve;
@@ -26,51 +24,45 @@ async function rejects(operation, matches) {
     assert(failure && matches(failure), `Unexpected error: ${failure}`);
 }
 
-function holdWrite() {
-    const entered = deferred();
-    const replace = Gio.File.prototype.replace_contents_bytes_async;
-    let release;
-    Gio.File.prototype.replace_contents_bytes_async = function (...args) {
-        Gio.File.prototype.replace_contents_bytes_async = replace;
-        release = () => replace.call(this, ...args);
-        entered.resolve();
-    };
-    return {entered: entered.promise, release: () => release()};
+// The fake command stays alive until released, so restoration cannot overtake it.
+async function waitForCommand() {
+    const entered = Gio.File.new_for_path(`${directory}/entered`);
+    const monitor = entered.monitor_file(Gio.FileMonitorFlags.NONE, null);
+    try {
+        await new Promise(resolve => {
+            monitor.connect('changed', () => { if (entered.query_exists(null)) resolve(); });
+            if (entered.query_exists(null)) resolve();
+        });
+    } finally {
+        monitor.cancel();
+    }
 }
 
 const check = ARGV[0];
-if (check === 'preserve') {
-    const retained = '# My settings\r\nfactor=0.9\r\npinch_zoom_factor=1.25\r\npinch_rotate_factor=0.75\r\nfuture_key=keep\r\n';
-    await write(`${retained} scroll_vertical_factor = 2\nscroll_vertical_factor=3\nscroll_horizontal_factor=4`);
-    Gio.Subprocess.new = () => { throw new Error('Unexpected subprocess'); };
-    Gio.File.prototype.load_contents = () => { throw new Error('Synchronous read'); };
-    Gio.File.prototype.replace_contents = () => { throw new Error('Synchronous write'); };
+if (check === 'command') {
+    const newFile = Gio.File.new_for_path;
+    Gio.File.new_for_path = () => { throw new Error('Direct configuration access'); };
+    GLib.timeout_add_seconds = () => { throw new Error('Unexpected set timeout'); };
+    for (const name of ['communicate_utf8', 'wait', 'wait_check'])
+        Gio.Subprocess.prototype[name] = () => { throw new Error(`Synchronous ${name}`); };
     await applySpeed(path, speed);
-    const expected = `${retained}scroll_vertical_factor=0.3500\nscroll_horizontal_factor=0.4500\n`;
-    assert(await read() === expected, 'Unrelated settings changed or duplicate factors remain');
-    await write((await read()).replace('pinch_zoom_factor=1.25', 'pinch_zoom_factor=1.50'));
-    await applySpeed(path, original);
-    assert((await read()).includes('pinch_zoom_factor=1.50'), 'Restoration overwrote a later pinch setting');
-} else if (check === 'missing') {
-    await file.delete_async(GLib.PRIORITY_DEFAULT, null);
-    await file.get_parent().delete_async(GLib.PRIORITY_DEFAULT, null);
-    await applySpeed(path, speed);
-    assert(await read() === 'scroll_vertical_factor=0.3500\nscroll_horizontal_factor=0.4500\n', 'Config was not created');
-} else if (check === 'conflict') {
-    const held = holdWrite();
-    const result = applySpeed(path, speed);
-    await held.entered;
-    const external = '# External edit\npinch_zoom_factor=2\n';
-    await write(external);
-    held.release();
-    await rejects(() => result, error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.WRONG_ETAG));
-    assert(await read() === external, 'An external edit was overwritten');
-} else if (check === 'errors') {
-    const before = await read();
-    await rejects(() => applySpeed(path, {vertical: NaN, horizontal: 1}), error => /Invalid/.test(error.message));
-    await rejects(() => applySpeed(`${path}/child`, speed), error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_DIRECTORY));
-    await rejects(() => applySpeed(`${directory}/settings`, speed), error => error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.IS_DIRECTORY));
-    assert(await read() === before, 'A failed write changed the config');
+    Gio.File.new_for_path = newFile;
+    assert(JSON.stringify(await commands()) === JSON.stringify([
+        ['set', '--scroll-vertical', '0.3500', '--scroll-horizontal', '0.4500'],
+    ]), 'Wrong command arguments');
+    const applied = await state();
+    assert(applied.scroll_vertical_factor === 0.35 && applied.scroll_horizontal_factor === 0.45,
+        'Command did not finish before applySpeed resolved');
+} else if (check === 'errors' || check === 'failure' || check === 'signal') {
+    const before = await read('state.json');
+    if (check === 'errors') {
+        await rejects(() => applySpeed(path, {vertical: NaN, horizontal: 1}), error => /Invalid/.test(error.message));
+        await rejects(() => applySpeed(`${directory}/missing`, speed), error => error.matches(GLib.SpawnError, GLib.SpawnError.NOENT));
+    } else {
+        await rejects(() => applySpeed(path, speed), error => error.message === (check === 'failure'
+            ? 'Fake WSF could not save the settings.' : 'Wayland Scroll Factor could not apply the setting.'));
+    }
+    assert(await read('state.json') === before, 'A rejected command changed the settings');
 } else {
     const {default: Extension} = await import(`file://${directory}/extension.js`);
     const handlers = new Map();
@@ -105,33 +97,38 @@ if (check === 'preserve') {
         assert(!GLib.MainContext.default().find_source_by_id(timeoutId), 'Status timer survived disable');
         await rejects(() => extension.started, error => error.message === 'Operation cancelled.');
         GLib.timeout_add_seconds = addTimeout;
-    } else if (check === 'inactive' || check === 'path') {
+    } else if (check === 'inactive' || check === 'invalid' || check === 'timeout') {
         const errors = [];
         extension._report = error => errors.push(error);
-        const before = await read();
+        const before = await read('state.json');
         extension.enable();
-        await rejects(() => extension.started, error => new RegExp(check === 'inactive' ? 'wsf enable' : 'configuration path').test(error.message));
+        const message = {inactive: 'wsf enable', invalid: 'valid scroll speeds', timeout: 'five seconds'}[check];
+        await rejects(() => extension.started, error => error.message.includes(message));
         assert(errors.length === 1 && !extension._writer, 'Startup failure was not reported');
         extension.disable();
-        assert(await read() === before, 'Failed startup changed the file');
+        assert(await read('state.json') === before, 'Failed startup changed the settings');
     } else {
         extension.enable();
         await extension.started;
         const writer = extension._writer;
-        const held = holdWrite();
+        const addTimeout = GLib.timeout_add_seconds;
+        GLib.timeout_add_seconds = () => { throw new Error('Unexpected set timeout'); };
         writer.request(speed);
-        await held.entered;
+        await waitForCommand();
+        assert((await state()).scroll_vertical_factor === 1, 'Held command already applied its factors');
         extension.disable();
         const finished = writer._pending;
+        // Startup may create a status timer only after restoration has completed.
+        finished.then(() => { GLib.timeout_add_seconds = addTimeout; });
         assert(extension._writer === null && handlers.size === 0, 'Shell resources survived disable');
         extension.enable();
         const started = extension.started;
         if (check === 'waiting')
             extension.disable();
-        // An I/O round trip gives startup a chance to run, without a timing guess.
-        await read();
-        assert(!extension._writer, 'Re-enable did not wait for restoration');
-        held.release();
+        const beforeRelease = await commands();
+        assert(!extension._writer && beforeRelease.length === 2, 'Re-enable or restoration overtook the running command');
+        await Gio.File.new_for_path(`${directory}/release`).replace_contents_bytes_async(
+            new GLib.Bytes('release\n'), null, false, Gio.FileCreateFlags.NONE, null);
         await finished;
         await started;
         if (check === 'waiting') {
@@ -142,9 +139,13 @@ if (check === 'preserve') {
         assert(extension._originalSpeed.vertical === 1 && extension._originalSpeed.horizontal === 0.8,
             'Re-enable captured an application override');
         await extension._writer._pending;
-        const restored = await read();
-        assert(restored.includes('scroll_vertical_factor=1.0000') && restored.includes('scroll_horizontal_factor=0.8000'),
+        const restored = await state();
+        assert(restored.scroll_vertical_factor === 1 && restored.scroll_horizontal_factor === 0.8,
             'Original factors were not restored');
+        assert(JSON.stringify(await commands()) === JSON.stringify([
+            ['status', '--json'], ['set', '--scroll-vertical', '0.3500', '--scroll-horizontal', '0.4500'],
+            ['set', '--scroll-vertical', '1.0000', '--scroll-horizontal', '0.8000'], ['status', '--json'],
+        ]), 'Unexpected command order or redundant commands');
         const lastWriter = extension._writer;
         extension.disable();
         await lastWriter._pending;

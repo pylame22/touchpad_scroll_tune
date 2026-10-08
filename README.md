@@ -18,7 +18,7 @@ The extension does not create example presets on first launch.
 - Separate vertical and horizontal factors, or linked axes.
 - Speeds follow the window under the pointer, including unfocused windows.
 - Event-driven window tracking: no periodic cursor polling or pointer-motion handler.
-- Asynchronous configuration writes, with no persistent helper or per-change subprocess.
+- Native `wsf set` commands, with asynchronous completion and no persistent helper.
 - Original scroll speeds are restored when the extension is disabled.
 - Pinch zoom and rotation settings are preserved.
 
@@ -99,9 +99,9 @@ Default speed saves automatically; preset dialogs save when you click **Create**
 or **Save**. Default also applies to Shell UI and the overview.
 
 The extension captures WSF's current speeds each time it is enabled. Disabling it
-restores those speeds asynchronously after any in-flight write finishes. If the
+restores those speeds asynchronously after any in-flight command finishes. If the
 configuration cannot be restored, the error is logged in the user journal.
-Restoration requires GNOME Shell to keep running until the final write completes;
+Restoration requires GNOME Shell to keep running until the final command completes;
 it is not guaranteed after a Shell crash or forced termination.
 
 ## Troubleshooting and reporting bugs
@@ -139,12 +139,11 @@ glib-compile-schemas --strict --dry-run schemas
 ```
 
 All tests run through Node.js 24+ using its built-in test runner; no npm packages
-are needed. Integration tests also require `gjs`. They use temporary configuration
-files and a fake `wsf status` command written in JavaScript, so they never change
-the real WSF configuration. GJS fixtures exercise real asynchronous file I/O and
-the extension lifecycle with Shell imports stubbed. Tests cover preservation of
-unrelated settings, conflicting edits, file errors, startup cancellation,
-restoration and rapid disable/re-enable.
+are needed. Integration tests also require `gjs`. They use a fake `wsf` command
+written in JavaScript with temporary state, so they never change the real WSF
+configuration. GJS fixtures exercise real asynchronous subprocesses and the
+extension lifecycle with Shell imports stubbed. Tests cover command arguments,
+command failures, startup cancellation, restoration and rapid disable/re-enable.
 
 The packaged extension has also been checked in an isolated GNOME Shell 51.0
 Wayland session with a fake WSF: actor tracking, signal and idle-source cleanup,
@@ -174,21 +173,22 @@ The extension observes `notify::has-pointer` on the window actor tree, including
 new subsurfaces, and coalesces crossing/window events into one idle callback.
 Tracking disconnects entirely when no assigned application differs from Default.
 
-Startup uses `wsf status --json` to check the backend, read the current factors
-and locate its configuration file. The status command has a five-second timeout
-and is cancelled, along with its timeout, if the extension is disabled.
+Startup uses `wsf status --json` to check the backend and read the current factors.
+The status command has a five-second timeout and is cancelled, along with its
+timeout, if the extension is disabled.
 
-Speed changes use GIO to read and atomically replace the config asynchronously.
-Only the two scroll factors are updated; pinch settings, comments and unknown
-keys are preserved. The file's ETag is passed back on replacement so a detected
-concurrent edit is reported instead of silently overwritten. This uses the WSF
-1.0 configuration format; the GNOME backend picks up changes during gestures.
+Speed changes run `wsf set --scroll-vertical VALUE --scroll-horizontal VALUE`
+and await completion asynchronously. WSF handles its own configuration file;
+the extension does not read or edit it. Only scroll factors are passed to WSF,
+leaving pinch zoom and rotation settings unchanged.
 
-One write runs at a time, retaining only the latest requested speed and skipping
-unchanged factors. No helper process, IPC or write timeout is needed. On disable,
-Shell disconnects its signals and removes its idle source; the writer finishes
+One speed command runs at a time, retaining only the latest requested speed and
+skipping unchanged factors. Speed commands have no timeout or cancellation so
+they can finish in order, including restoration after disable. A stuck `wsf set`
+would delay subsequent changes and restoration until that process exits.
+On disable, Shell disconnects its signals and removes its idle source; the writer finishes
 its current operation and restores the original factors without accessing Shell
-UI. Re-enabling waits asynchronously for this final write before reading a new
+UI. Re-enabling waits asynchronously for this final command before reading a new
 baseline. The temporary restoration promise is cleared when it finishes.
 
 ## License
