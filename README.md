@@ -111,7 +111,9 @@ it is not guaranteed after a Shell crash or forced termination.
 - **Speeds keep changing unexpectedly**: check for another extension or WSF tool
   writing scroll factors at the same time.
 - **An app uses Default**: check its preset assignment; applications GNOME cannot
-  identify use Default.
+  identify use Default. Some apps, often Electron ones, identify their windows by a
+  hidden desktop entry: in **Choose applications**, search for the app and select
+  its entry marked **Hidden** as well.
 - **Updated code is not taking effect**: start a new GNOME session after installing
   an update. Disabling and re-enabling alone does not reload Shell JavaScript.
 

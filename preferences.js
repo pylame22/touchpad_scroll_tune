@@ -321,20 +321,25 @@ export class Preferences {
         const scroll = new Gtk.ScrolledWindow({vexpand: true, hscrollbar_policy: Gtk.PolicyType.NEVER, child: list});
         content.append(scroll);
         toolbar.set_content(content);
-        const apps = new Map(Gio.AppInfo.get_all().filter(app => app.should_show() && app.get_id())
+        const apps = new Map(Gio.AppInfo.get_all().filter(app => app.get_id())
             .map(app => [app.get_id(), app]));
-        // Retain assignments for apps that are currently hidden or uninstalled.
+        // Retain assignments for apps that are no longer installed.
         for (const appId of Object.keys(config.assignments)) {
             if (!apps.has(appId))
                 apps.set(appId, GioUnix.DesktopAppInfo.new(appId));
         }
+        // Hidden entries (NoDisplay, OnlyShowIn…) are mostly system components,
+        // but some apps identify their windows by one, e.g. Electron apps that
+        // install their own desktop file. List them last and only when searching.
+        const entries = [...apps].map(([appId, app]) => ({appId, app,
+            name: app?.get_display_name() ?? appId, hidden: !app?.should_show()}));
+        entries.sort((a, b) => a.hidden - b.hidden || a.name.localeCompare(b.name));
         const rows = [];
-        const sorted = [...apps].sort(([a, ai], [b, bi]) =>
-            (ai?.get_display_name() ?? a).localeCompare(bi?.get_display_name() ?? b));
-        for (const [appId, app] of sorted) {
+        for (const {appId, app, name, hidden} of entries) {
             const assigned = config.assignments[appId];
-            const row = new Adw.ActionRow({title: app?.get_display_name() ?? appId,
-                subtitle: assigned ? config.presets[assigned].name : 'Default speed', activatable: true, use_markup: false});
+            const status = assigned ? config.presets[assigned].name : 'Default speed';
+            const row = new Adw.ActionRow({title: name, activatable: true, use_markup: false,
+                subtitle: hidden ? `${status} · ${app ? 'Hidden' : 'Not installed'} · ${appId}` : status});
             row.add_prefix(new Gtk.Image({gicon: app?.get_icon() ??
                 new Gio.ThemedIcon({name: 'application-x-executable-symbolic'}), pixel_size: 28}));
             const check = new Gtk.CheckButton({active: selected.has(appId), valign: Gtk.Align.CENTER});
@@ -342,20 +347,30 @@ export class Preferences {
             row.add_suffix(check);
             row.activatable_widget = check;
             list.append(row);
-            rows.push([row, `${row.title} ${appId}`.toLowerCase()]);
+            rows.push({row, appId, hidden, text: `${name} ${appId}`.toLowerCase()});
         }
         const empty = new Gtk.Label({label: 'No matching applications', margin_top: 24,
             margin_bottom: 24, css_classes: ['dim-label'], visible: false});
         content.append(empty);
-        search.connect('search-changed', () => {
+        const hint = new Gtk.Label({label: 'Hidden applications appear when searching',
+            css_classes: ['dim-label', 'caption']});
+        content.append(hint);
+        const filter = () => {
             const query = search.text.trim().toLowerCase();
             let count = 0;
-            for (const [row, text] of rows) {
-                row.visible = text.includes(query);
+            let concealed = false;
+            for (const {row, appId, hidden, text} of rows) {
+                // Without a query, hidden entries stay listed while assigned or checked.
+                row.visible = query ? text.includes(query)
+                    : !hidden || Object.hasOwn(config.assignments, appId) || selected.has(appId);
                 count += row.visible ? 1 : 0;
+                concealed ||= hidden && !row.visible;
             }
             empty.visible = count === 0;
-        });
+            hint.visible = !query && concealed;
+        };
+        search.connect('search-changed', filter);
+        filter();
         dialog.present(this.window);
         search.grab_focus();
     }
